@@ -1,0 +1,11 @@
+.vscode/
+.DS_Store
+__pycache__/
+old/
+models/
+data/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.synctex.gz

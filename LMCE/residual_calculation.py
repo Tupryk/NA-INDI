@@ -185,52 +185,6 @@ def payload_fa(data_usd: dict,
     return fa
 
 
-def spline_tau_a(data_usd: dict, use_rpm: bool=True):
-
-    start_time = data_usd["timestamp"][0]
-    t = (data_usd["timestamp"] - start_time) / 1e3
-    
-    omega = data_usd["ang_vel"]
-    
-    if use_rpm:
-        rpm = data_usd["rpm"]
-        kappa_f = np.array([2.139974655714972e-10, 2.3783777845095615e-10, 1.9693330742680727e-10, 2.559402652634741e-10])
-        force = kappa_f * rpm**2
-    else:
-        pwm = data_usd["pwm"]
-        coeffs = [6.47418985e-11, -5.03191974e-06, 1.85109791e-01]
-        force = coeffs[0] * pwm**2 + coeffs[1] * pwm + coeffs[2]
-
-    J = np.diag([16.571710e-6, 16.655602e-6, 29.261652e-6])
-    arm_length = 0.046
-    arm = 0.707106781 * arm_length
-    t2t = 0.006
-    allocation_matrix = np.array([
-        [1, 1, 1, 1],
-        [-arm, -arm, arm, arm],
-        [-arm, arm, arm, -arm],
-        [-t2t, t2t, -t2t, t2t]
-    ])
-
-    sf = SplineFitter()
-    omega_dot_spline = []
-
-    for k in range(3):
-        sf.fit(t, omega[:,k], 50)
-        spline = sf.evald(t)
-        omega_dot_spline.append(spline)
-        
-    omega_dot_spline = np.array(omega_dot_spline).T
-
-    tau_a = []
-    for i in range(force.shape[0]):
-        eta = allocation_matrix @ force[i]
-        tau_a.append(J @ omega_dot_spline[i] - np.cross(J @ omega[i], omega[i]) - eta[1:])
-
-    tau_a = np.array(tau_a)
-    return tau_a
-
-
 def indi_residuals(data_usd: dict,
                    total_mass: float=.0366,
                    payload: bool=False,

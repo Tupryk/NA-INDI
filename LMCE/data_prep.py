@@ -6,68 +6,34 @@ from tqdm import tqdm
 from sklearn.utils import shuffle
 from torch.utils.data import TensorDataset, DataLoader
 
-import LMCE.cfusdlog as cfusdlog
-
 
 def feature_label_from_data(data: dict, residual_func, payload: bool=False):
     features = []
     labels = []
 
-    payload_char = "P" if payload else ""
-
     r = []
-    for j in range(0, len(data['timestamp'])):
-        q = rowan.from_euler(data[f"ctrlLee{payload_char}.rpyx"][j],
-                             data[f"ctrlLee{payload_char}.rpyy"][j],
-                             data[f"ctrlLee{payload_char}.rpyz"][j], "xyz", "extrinsic")
-        R = rowan.to_matrix(q)[:, :2]
+    for i in range(0, len(data["timestamp"])):
+        q = data["rot"]
+        R = rowan.to_matrix(q[i])[:, :2]
         R = R.reshape(1, 6)
         r.append(R[0])
 
     r = np.array(r)
     
-    accs = np.array([data["stateEstimateZ.ax"],
-                     data["stateEstimateZ.ay"],
-                     data["stateEstimateZ.az"]], dtype=np.float64).T * 1e-3
+    accs = data["acc"]
+    vels = data["vel"]
+    gyro = data["ang_vel"]
+    motors = data["pwm"]
     
-    vels = np.array([data["stateEstimateZ.vx"],
-                     data["stateEstimateZ.vy"],
-                     data["stateEstimateZ.vz"]], dtype=np.float64).T * 1e-3
-    
-    gyro = np.array([data[f"ctrlLee{payload_char}.omegax"],
-                     data[f"ctrlLee{payload_char}.omegay"],
-                     data[f"ctrlLee{payload_char}.omegaz"]]).T
-    
-    motors = np.array([data["motor.m1"],
-                       data["motor.m2"],
-                       data["motor.m3"],
-                       data["motor.m4"]]).T * 1e-4
-    
-    if payload:
-        payload_acc = np.array([
-            data["ctrlLeeP.plAccx"],
-            data["ctrlLeeP.plAccy"],
-            data["ctrlLeeP.plAccz"],
-        ]).T
-
-        payload_vel = np.array([
-            data["ctrlLeeP.plVelx"],
-            data["ctrlLeeP.plVelx"],
-            data["ctrlLeeP.plVelx"],
-        ]).T
-
-        payload_pos = np.array([
-            data["stateEstimateZ.px"],
-            data["stateEstimateZ.py"],
-            data["stateEstimateZ.pz"],
-        ]).T * 1e-3
-
     features = np.append(r, accs, axis=1)
     features = np.append(features, vels, axis=1)
     features = np.append(features, gyro, axis=1)
     features = np.append(features, motors, axis=1)
 
     # if payload:
+    #     payload_acc = data["p_acc"]
+    #     payload_vel = data["p_vel"]
+    #     payload_pos = data["p_pos"]
     #     features = np.append(features, payload_acc, axis=1)
     #     features = np.append(features, payload_vel, axis=1)
     #     features = np.append(features, payload_pos, axis=1)
@@ -87,7 +53,7 @@ def prepare_data(file_paths: list,
                  cutoffs: dict={},
                  payload: bool=False):
     
-    if os.path.exists(f"./data/{save_as}.npz") and not overwrite:
+    if save_as and os.path.exists(f"./data/{save_as}.npz") and not overwrite:
         print("Data already exists, loading from files...")
         loaded_arrays = np.load(f"./data/{save_as}.npz")
         X = loaded_arrays['X']
@@ -104,17 +70,17 @@ def prepare_data(file_paths: list,
 
     for file_path in pbar:
         try:
-            data_usd = cfusdlog.decode(file_path)
+            data = np.load(file_path, allow_pickle=True).item()
         except:
-            if verbose > 1:
+            if verbose:
                 print(f"Failed to load {file_path}!")
             continue
-
-        data = data_usd['fixedFrequency']
-        idx = int(file_path[-2:])
-        if idx in cutoffs:
-            for k in data.keys():
-                data[k] = data[k][:cutoffs[idx]]
+        
+        if len(cutoffs.keys()):
+            idx = int(file_path[-2:])
+            if idx in cutoffs:
+                for k in data.keys():
+                    data[k] = data[k][:cutoffs[idx]]
 
         features, labels = feature_label_from_data(data, residual_func, payload=payload)
         X.extend(features)

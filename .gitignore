@@ -4,6 +4,7 @@ __pycache__/
 old/
 models/
 data/
+data_old/
 *.aux
 *.fdb_latexmk
 *.fls

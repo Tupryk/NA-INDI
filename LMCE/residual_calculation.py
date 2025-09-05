@@ -40,86 +40,32 @@ def project_onto_plane(v, n):
 
 
 def residual(data_usd: dict,
-             is_brushless: bool = False,
              has_payload: bool = False,
              use_rpm: bool = True,
-             force_per_rotor: bool=False,
-             world_acc: bool=False,
              projection_payload_calc: bool=False,
-             payload_mass: float=.0047,
-             payload_acc_method: list[float]=["ctrlLeeP.plAccx_tq", "ctrlLeeP.plAccy_tq", "ctrlLeeP.plAccz_tq"]):
+             make_smooth: bool=False,
+             spline_segments: int=50,
+             payload_mass: float=.0047):
 
     # Set mass
-    if is_brushless:
-        total_mass = .0444
-    else:
-        total_mass = .0347
+    total_mass = .0366
+    start_time = data_usd["timestamp"][0]
+    t = (data_usd["timestamp"] - start_time) / 1e3
 
-    # q = np.array([
-    #     data_usd['stateEstimate.qw'],
-    #     data_usd['stateEstimate.qx'],
-    #     data_usd['stateEstimate.qy'],
-    #     data_usd['stateEstimate.qz']]).T
-    
-    q = rowan.from_euler(data_usd["ctrlLee.rpyx"],
-                         data_usd["ctrlLee.rpyy"],
-                         data_usd["ctrlLee.rpyz"])
+    q = data_usd["rot"]
+    acc_world = data_usd["acc"]
 
-    # Get acceleration in world frame
-    if not world_acc:
-        # acc_body = np.array([
-        #     data_usd['acc.x'],
-        #     data_usd['acc.y'],
-        #     data_usd['acc.z']]).T
-        
-        acc_body = np.array([
-            data_usd['ctrlLee.a_imux'],
-            data_usd['ctrlLee.a_imuy'],
-            data_usd['ctrlLee.a_imuz']]).T
-
-        acc_world = rowan.rotate(q, acc_body)
-
-    else:
-        acc_world = np.array([
-            data_usd['stateEstimate.ax'],
-            data_usd['stateEstimate.ay'],
-            data_usd['stateEstimate.az']]).T
-
-    acc_world *= 9.81
-
-    # Get total forces
+    # Get total force
     if use_rpm:
-        rpm = np.array([
-            data_usd['rpm.m1'],
-            data_usd['rpm.m2'],
-            data_usd['rpm.m3'],
-            data_usd['rpm.m4']]).T
-        if is_brushless:
-            force_in_grams = 4.310657321921365e-08 * rpm**2
-        else:
-            if force_per_rotor:
-                force = rpm**2 * np.array([2.0938753372837369e-10,
-                                           2.2766702598220073e-10,
-                                           1.906494181367591e-10,
-                                           2.4578364131636854e-10])
-            else:
-                force_in_grams = 2.40375893e-08 * rpm**2 + - \
-                    3.74657423e-05 * rpm + -7.96100617e-02
+        rpm = data_usd["rpm"]
+        kappa_f = np.array([2.139974655714972e-10, 2.3783777845095615e-10, 1.9693330742680727e-10, 2.559402652634741e-10])
+        force = kappa_f * rpm**2
 
     else:  # pwm
-        pwm = np.array([
-            data_usd['pwm.m1_pwm'],
-            data_usd['pwm.m2_pwm'],
-            data_usd['pwm.m3_pwm'],
-            data_usd['pwm.m4_pwm']]).T
-        if is_brushless:
-            force_in_grams = -5.360718677769569 + pwm * 0.0005492858445116151
-        else:
-            force_in_grams = 1.65049399e-09 * pwm**2 + \
-                9.44396129e-05 * pwm + -3.77748052e-01
-
-    if not force_per_rotor:
-        force = force_in_grams * g2N
+        pwm = data_usd["pwm"]
+        # coeffs = [6.47418985e-11, -5.03191974e-06, 1.85109791e-01]
+        coeffs = [5.95534920e-15, -8.25263291e-10, 3.91162380e-05, -5.41800603e-01]
+        force = coeffs[0] * pwm**3 + coeffs[1] * pwm**2 + coeffs[2] * pwm + coeffs[3]
 
     eta = np.empty((force.shape[0], 4))
     f_u = np.empty((force.shape[0], 3))
@@ -127,6 +73,7 @@ def residual(data_usd: dict,
 
     # Get residual forces
     arm = 0.707106781 * ARM_LENGTH
+
     B0 = np.array([
         [1, 1, 1, 1],
         [-arm, -arm, arm, arm],
@@ -141,45 +88,68 @@ def residual(data_usd: dict,
 
     if has_payload:
         if projection_payload_calc:
-            payload_dir = np.array([data_usd["stateEstimateZ.px"] - data_usd["stateEstimate.x"],
-                                    data_usd["stateEstimateZ.py"] - data_usd["stateEstimate.y"],
-                                    data_usd["stateEstimateZ.pz"] - data_usd["stateEstimate.z"]], dtype=np.float32).T
+            pos = data_usd["pos"]
+            p_pos = data_usd["p_pos"]
+            payload_dir = p_pos - pos
             f_a = total_mass * acc_world - rowan.rotate(q, f_u)
             f_a = project_onto_plane(f_a, payload_dir)
 
         else:
-            payload_acc = np.array([data_usd[payload_acc_method[0]],
-                                    data_usd[payload_acc_method[1]],
-                                    data_usd[payload_acc_method[2]]]).T
+            payload_acc = data_usd["p_acc"]
             T_p = -payload_mass * payload_acc - payload_mass * np.array([0., 0., 9.81])
             f_a = total_mass * acc_world - rowan.rotate(q, f_u) - T_p
     else:
         f_a = total_mass * acc_world - rowan.rotate(q, f_u)
+    
+    omega = data_usd["ang_vel"]
+    sf = SplineFitter()
+    omega_dot_spline = []
 
-    return f_a, tau_u
+    for k in range(3):
+        sf.fit(t, omega[:,k], 50)
+        spline = sf.evald(t)
+        omega_dot_spline.append(spline)
+        
+    omega_dot_spline = np.array(omega_dot_spline).T
+    J = np.diag([16.571710e-6, 16.655602e-6, 29.261652e-6])
+
+    tau_a = []
+    for i in range(force.shape[0]):
+        eta = B0 @ force[i]
+        tau_a.append(J @ omega_dot_spline[i] - np.cross(J @ omega[i], omega[i]) - eta[1:])
+
+    tau_a = np.array(tau_a)
+
+    if make_smooth:
+
+        start_time = data_usd["timestamp"][0]
+        t = (data_usd["timestamp"] - start_time) / 1e3
+        
+        for i in range(3):
+            sf = SplineFitter()
+            sf.fit(t, tau_a[:, i], spline_segments)
+            tau_a[:, i] = sf.eval(t)
+
+        for i in range(3):
+            sf = SplineFitter()
+            sf.fit(t, f_a[:, i], spline_segments)
+            f_a[:, i] = sf.eval(t)
+                
+    return f_a, tau_a
 
 
 def payload_fa(data_usd: dict,
                mass: float=.0366,
                mass_payload: float=.005):
 
-    start_time = data_usd['timestamp'][0]
-    t = (data_usd['timestamp'] - start_time) / 1e3
+    start_time = data_usd["timestamp"][0]
+    t = (data_usd["timestamp"] - start_time) / 1e3
 
-    pos = np.array([
-        data_usd['stateEstimate.x'],
-        data_usd['stateEstimate.y'],
-        data_usd['stateEstimate.z']]).T
+    pos = data_usd["pos"]
     
-    pos_payload = np.array([
-        data_usd['stateEstimateZ.px'],
-        data_usd['stateEstimateZ.py'],
-        data_usd['stateEstimateZ.pz']]).T / 1000.0
+    pos_payload = data_usd["p_pos"]
     
-    acc = np.array([
-        data_usd['stateEstimateZ.ax'],
-        data_usd['stateEstimateZ.ay'],
-        data_usd['stateEstimateZ.az'] - 9810]).T / 1000.0
+    acc = data_usd["acc"] - np.array([0., 0., 9.81])
     
     sf = SplineFitter()
 
@@ -192,24 +162,14 @@ def payload_fa(data_usd: dict,
     acc_payload_spline = np.array(acc_payload_spline).T
 
     # fa vs tau_a
-    rpm = np.array([
-        data_usd['rpm.m1'],
-        data_usd['rpm.m2'],
-        data_usd['rpm.m3'],
-        data_usd['rpm.m4'],
-    ]).T
+    rpm = data_usd["rpm"]
 
-    rpy = np.array([
-        data_usd[f'ctrlLeeP.rpyx'],
-        data_usd[f'ctrlLeeP.rpyy'],
-        data_usd[f'ctrlLeeP.rpyz']]).T
-
-    q = rowan.from_euler(rpy[:,0], rpy[:,1], rpy[:,2], "xyz", "extrinsic")
+    q = data_usd["rot"]
 
     kappa_f = np.array([2.139974655714972e-10, 2.3783777845095615e-10, 1.9693330742680727e-10, 2.559402652634741e-10])
     force = kappa_f * rpm**2
     f = force.sum(axis=1)
-    u = np.zeros_like(rpy)
+    u = np.zeros_like(rpm)
     u[:,2] = f
 
     g = np.array([0, 0, -9.81])
@@ -225,25 +185,21 @@ def payload_fa(data_usd: dict,
     return fa
 
 
-def spline_tau_a(data_usd: dict):
+def spline_tau_a(data_usd: dict, use_rpm: bool=True):
 
-    start_time = data_usd['timestamp'][0]
-    t = (data_usd['timestamp'] - start_time) / 1e3
+    start_time = data_usd["timestamp"][0]
+    t = (data_usd["timestamp"] - start_time) / 1e3
     
-    omega = np.array([
-        data_usd[f'ctrlLeeP.omegax'],
-        data_usd[f'ctrlLeeP.omegay'],
-        data_usd[f'ctrlLeeP.omegaz']
-    ]).T
+    omega = data_usd["ang_vel"]
     
-    rpm = np.array([
-        data_usd['rpm.m1'],
-        data_usd['rpm.m2'],
-        data_usd['rpm.m3'],
-        data_usd['rpm.m4'],
-    ]).T
-    kappa_f = np.array([2.139974655714972e-10, 2.3783777845095615e-10, 1.9693330742680727e-10, 2.559402652634741e-10])
-    force = kappa_f * rpm**2
+    if use_rpm:
+        rpm = data_usd["rpm"]
+        kappa_f = np.array([2.139974655714972e-10, 2.3783777845095615e-10, 1.9693330742680727e-10, 2.559402652634741e-10])
+        force = kappa_f * rpm**2
+    else:
+        pwm = data_usd["pwm"]
+        coeffs = [6.47418985e-11, -5.03191974e-06, 1.85109791e-01]
+        force = coeffs[0] * pwm**2 + coeffs[1] * pwm + coeffs[2]
 
     J = np.diag([16.571710e-6, 16.655602e-6, 29.261652e-6])
     arm_length = 0.046
@@ -279,10 +235,8 @@ def indi_residuals(data_usd: dict,
                    total_mass: float=.0366,
                    payload: bool=False,
                    make_smooth: bool=True,
-                   show_fit: bool=False,
+                   verbose: int=0,
                    spline_segments: int=50):
-
-    payload_char = "P" if payload else ""
 
     data_len = len(data_usd["timestamp"])
 
@@ -292,18 +246,13 @@ def indi_residuals(data_usd: dict,
         if payload and make_smooth:
             f_a = payload_fa(data_usd, total_mass)
         else:
-            f_a = np.zeros((data_len, 3))
-            f_a[:, 0] = (data_usd[f"ctrlLee{payload_char}.a_imu_fx"] - data_usd[f"ctrlLee{payload_char}.a_rpm_fx"]) * total_mass
-            f_a[:, 1] = (data_usd[f"ctrlLee{payload_char}.a_imu_fy"] - data_usd[f"ctrlLee{payload_char}.a_rpm_fy"]) * total_mass
-            f_a[:, 2] = (data_usd[f"ctrlLee{payload_char}.a_imu_fz"] - data_usd[f"ctrlLee{payload_char}.a_rpm_fz"]) * total_mass
+            f_a = (data_usd["a_imu"] - data_usd["a_rpm"]) * total_mass
     
     tau_a = np.zeros((data_len, 3))
-    tau_a[:, 0] = data_usd[f"ctrlLee{payload_char}.tau_imu_fx"] - data_usd[f"ctrlLee{payload_char}.tau_rpm_fx"]
-    tau_a[:, 1] = data_usd[f"ctrlLee{payload_char}.tau_imu_fy"] - data_usd[f"ctrlLee{payload_char}.tau_rpm_fy"]
-    tau_a[:, 2] = data_usd[f"ctrlLee{payload_char}.tau_imu_fz"] - data_usd[f"ctrlLee{payload_char}.tau_rpm_fz"]
+    tau_a = data_usd["tau_imu"] - data_usd["tau_rpm"]
     if make_smooth:
-        start_time = data_usd['timestamp'][0]
-        t = (data_usd['timestamp'] - start_time) / 1e3
+        start_time = data_usd["timestamp"][0]
+        t = (data_usd["timestamp"] - start_time) / 1e3
         tau_a_noisy = tau_a.copy()
         # tau_a = spline_tau_a(data_usd)
         for i in range(3):
@@ -312,18 +261,18 @@ def indi_residuals(data_usd: dict,
             tau_a[:, i] = sf.eval(t)
 
     if make_smooth:
-        start_time = data_usd['timestamp'][0]
-        t = (data_usd['timestamp'] - start_time) / 1e3
+        start_time = data_usd["timestamp"][0]
+        t = (data_usd["timestamp"] - start_time) / 1e3
 
         f_a_noisy = f_a.copy()
 
-        if make_smooth and not payload:
+        if not payload:
             for i in range(3):
                 sf = SplineFitter()
                 sf.fit(t, f_a[:, i], spline_segments)
                 f_a[:, i] = sf.eval(t)
 
-        if show_fit:
+        if verbose:
             fig, ax = plt.subplots(6, figsize=(10, 30))
             for i, f in enumerate(["Force", "Torque"]):
                 for j, v in enumerate(["x", "y", "z"]):
@@ -331,8 +280,8 @@ def indi_residuals(data_usd: dict,
                     ax[idx].plot(f_a_noisy[:, j] if f == "Force" else tau_a_noisy[:, j], label="Noisy")
                     ax[idx].plot(f_a[:, j] if f == "Force" else tau_a[:, j], label="Smooth")
                     ax[idx].set_title(f'{f} {v}')
-                    ax[idx].set_xlabel('Timestamp')
-                    ax[idx].set_ylabel(f'{f} prediction')
+                    ax[idx].set_xlabel("Timestamp")
+                    ax[idx].set_ylabel(f"{f} prediction")
                     ax[idx].legend()
             plt.show()
 

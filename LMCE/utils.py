@@ -5,7 +5,7 @@ import numpy as np
 def min_max(to_scale: np.ndarray,
             mins: np.ndarray=np.array([]),
             maxs: np.ndarray=np.array([])):
-    
+
     vec_d = to_scale.shape[1]
     if not len(mins):
         maxs = np.array([max(to_scale[:, i]) for i in range(vec_d)])

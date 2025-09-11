@@ -38,17 +38,33 @@ def error_calculator(real_pos: List[float],
     error = sum(errors)/len(errors)
 
     if vis:
-        origin = np.array([x, y]).T
-        vector = np.array([x_, y_]).T
-        plt.plot(target_pos[0], target_pos[1], label="Desired path")
-        plt.plot(x, y, label="Real path")
-        plt.quiver(origin[:, 0], origin[:, 1], vector[:, 0], vector[:, 1], angles='xy',
-                   scale_units='xy', scale=1, color='r', alpha=.1, label="Deviation from flight path")
-        plt.xlabel("X position (m)")
-        plt.ylabel("Y position (m)")
-        plt.axis('equal')
-        plt.legend()
-        plt.savefig("error.png", dpi=600)
+        # origin = np.array([x, y]).T
+        # vector = np.array([x_, y_]).T
+        # plt.plot(target_pos[0], target_pos[1], label="Desired path")
+        # plt.plot(x, y, label="Real path")
+        # plt.quiver(origin[:, 0], origin[:, 1], vector[:, 0], vector[:, 1], angles='xy',
+        #            scale_units='xy', scale=1, color='r', alpha=.1, label="Deviation from flight path")
+        # plt.xlabel("X position (m)")
+        # plt.ylabel("Y position (m)")
+        # plt.axis('equal')
+        # plt.legend()
+        # plt.savefig("error.png", dpi=600)
+        fig, axes = plt.subplots(3, 1, figsize=(8, 6), sharex=True)
+
+        for i, ax in enumerate(axes, 0):
+            ax.plot(target_pos[i], label="target")
+            if i == 0:
+                ax.plot(x, label="real")
+                ax.set_title(f"X-Axis")
+            if i == 1:
+                ax.plot(y, label="real")
+                ax.set_title(f"Y-Axis")
+            if i == 2:
+                ax.plot(z, label="real")
+                ax.set_title(f"Z-Axis")
+            ax.legend()
+
+        plt.tight_layout()
         plt.show()
 
     return error

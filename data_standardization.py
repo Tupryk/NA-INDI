@@ -5,14 +5,15 @@ files and transform them to the same json format with
 the same keys and standards.
 """
 import os
-import json
 import rowan
 import numpy as np
 
 from LMCE import cfusdlog
 
 
-def tranform(data: dict, has_payload: bool=False) -> dict:
+def transform(data: dict, has_payload: bool=False) -> dict:
+    
+    extra_char = "P" if has_payload else ""
     
     timestamp = np.array(data["timestamp"])
 
@@ -24,9 +25,9 @@ def tranform(data: dict, has_payload: bool=False) -> dict:
     #                 data["stateEstimate.qx"],
     #                 data["stateEstimate.qy"],
     #                 data["stateEstimate.qz"]]).T
-    rot = rowan.from_euler(data["ctrlLee.rpyx"],
-                           data["ctrlLee.rpyy"],
-                           data["ctrlLee.rpyz"], "xyz", "extrinsic")
+    rot = rowan.from_euler(data[f"ctrlLee{extra_char}.rpyx"],
+                           data[f"ctrlLee{extra_char}.rpyy"],
+                           data[f"ctrlLee{extra_char}.rpyz"], "xyz", "extrinsic")
     
     vel = np.array([data["stateEstimateZ.vx"],
                     data["stateEstimateZ.vy"],
@@ -59,33 +60,33 @@ def tranform(data: dict, has_payload: bool=False) -> dict:
     ]).T
     
     a_rpm_f = np.array([
-        data["ctrlLee.a_rpm_fx"],
-        data["ctrlLee.a_rpm_fy"],
-        data["ctrlLee.a_rpm_fz"]
+        data[f"ctrlLee{extra_char}.a_rpm_fx"],
+        data[f"ctrlLee{extra_char}.a_rpm_fy"],
+        data[f"ctrlLee{extra_char}.a_rpm_fz"]
     ]).T
     
     a_imu_f = np.array([
-        data["ctrlLee.a_imu_fx"],
-        data["ctrlLee.a_imu_fy"],
-        data["ctrlLee.a_imu_fz"]
+        data[f"ctrlLee{extra_char}.a_imu_fx"],
+        data[f"ctrlLee{extra_char}.a_imu_fy"],
+        data[f"ctrlLee{extra_char}.a_imu_fz"]
     ]).T
     
     tau_rpm_f = np.array([
-        data["ctrlLee.tau_rpm_fx"],
-        data["ctrlLee.tau_rpm_fy"],
-        data["ctrlLee.tau_rpm_fz"]
+        data[f"ctrlLee{extra_char}.tau_rpm_fx"],
+        data[f"ctrlLee{extra_char}.tau_rpm_fy"],
+        data[f"ctrlLee{extra_char}.tau_rpm_fz"]
     ]).T
     
     tau_imu_f = np.array([
-        data["ctrlLee.tau_imu_fx"],
-        data["ctrlLee.tau_imu_fy"],
-        data["ctrlLee.tau_imu_fz"]
+        data[f"ctrlLee{extra_char}.tau_imu_fx"],
+        data[f"ctrlLee{extra_char}.tau_imu_fy"],
+        data[f"ctrlLee{extra_char}.tau_imu_fz"]
     ]).T
     
     ang_vel = np.array([
-        data["ctrlLee.omegax"],
-        data["ctrlLee.omegay"],
-        data["ctrlLee.omegaz"]
+        data[f"ctrlLee{extra_char}.omegax"],
+        data[f"ctrlLee{extra_char}.omegay"],
+        data[f"ctrlLee{extra_char}.omegaz"]
     ]).T
     
     bat = data["pm.vbatMV"]
@@ -120,23 +121,23 @@ def tranform(data: dict, has_payload: bool=False) -> dict:
             data["ctrlLeeP.plVelx"],
         ]).T
         
-        p_acc = np.array([
-            data["ctrlLeeP.plAccx_tq"],
-            data["ctrlLeeP.plAccy_tq"],
-            data["ctrlLeeP.plAccz_tq"]
-        ]).T
+        # p_acc = np.array([
+        #     data["ctrlLeeP.plAccx_tq"],
+        #     data["ctrlLeeP.plAccy_tq"],
+        #     data["ctrlLeeP.plAccz_tq"]
+        # ]).T
         
         data_dict["p_pos"] = p_pos
         data_dict["p_vel"] = p_vel
-        data_dict["p_acc"] = p_acc
+        # data_dict["p_acc"] = p_acc
     
     return data_dict
 
 
 if __name__ == "__main__":
     
-    data_dir = "data_old/indi_no_payload"
-    target_dir = "data/data_clean"
+    data_dir = "data_old/final_pay_data"
+    target_dir = "data/data_clean_payload"
     
     os.makedirs(target_dir, exist_ok=True)
     
@@ -154,7 +155,7 @@ if __name__ == "__main__":
             for k in data.keys():
                 print(k)
         
-        data_clean = tranform(data)
+        data_clean = transform(data, has_payload=True)
         print(f"{i:02}.npy Done.")
         target_path = os.path.join(target_dir, f"{i:02}.npy")
         np.save(target_path, data_clean, allow_pickle=True)

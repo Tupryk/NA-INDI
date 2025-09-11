@@ -3,6 +3,7 @@ import torch
 import pickle
 import subprocess
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 PATH = "./LMCE/c_utils/"
@@ -34,6 +35,10 @@ def compare_outputs(c_output, py_output, err_thresh=1e-4):
         print("Models give the same outputs!")
     else:
         print("Something went wrong, outputs dont match!")
+        for i in range(4):
+            print("--")
+            print(c_output[i])
+            print(py_output[i])
 
 
 def exportNet(pth_path: str,
@@ -126,7 +131,10 @@ def exportNet(pth_path: str,
     for key, data in state_dict.items():
         switcher += 1
         counter += 1
-        input = "mlp.scaled_input" if counter == 1 else f"{exportname}.{name.replace('bias', 'activation')}"
+        if counter == 1:
+            input = f"{exportname}.scaled_input" if len(X_maxs) else "input"
+        else:
+            input = f"{exportname}.{name.replace('bias', 'activation')}"
         name = key.replace(".", "_")
         output = name.replace('bias', 'activation')
         a = data.numpy().T
@@ -160,32 +168,41 @@ def nn_c_model_test(original_model,
                     y_mins: np.ndarray=np.array([]),
                     y_maxs: np.ndarray=np.array([]),
                     in_dim: int=12,
-                    test_data: np.ndarray=np.array([])):
+                    test_data: np.ndarray=np.array([]),
+                    verbose: int=0):
     
     # Check if the model outputs match
     print("Comparing with original...")
     if not len(test_data):
         test_data = np.random.random((1000, in_dim))
     
-    gen_file = open(f'{PATH}test_data.h', 'w')
+    gen_file = open(f"{PATH}test_data.h", 'w')
     gen_file.write(f"float input[{test_data.shape[0]}][{test_data.shape[1]}] = {arr2cstr(test_data[:100])};")
     
-    process = subprocess.Popen(f'gcc {PATH}nn_main.c {PATH}nn.c {PATH}nn_utils.c -o {PATH}p', shell=True)
+    process = subprocess.Popen(f"gcc {PATH}nn_main.c {PATH}nn.c {PATH}nn_utils.c -o {PATH}p", shell=True)
     process.wait()
-    process = subprocess.Popen(f'{PATH}p', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(f"{PATH}p", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     process.wait()
 
     c_output, _ = process.communicate()
     c_output = c_output.decode('utf-8')
     c_output = np.array(eval(c_output))
 
-    test_data_ = (((test_data-X_mins)/(X_maxs-X_mins))-.5)*2
-    tensor_input = torch.from_numpy(test_data_)
+    if len(y_mins):
+        test_data = (((test_data-X_mins)/(X_maxs-X_mins))-.5)*2
+    tensor_input = torch.from_numpy(test_data)
     py_output = original_model.forward(tensor_input).detach().numpy()
     if len(y_mins):
         py_output = (py_output + 1) * .5 * (y_maxs - y_mins) + y_mins
 
     compare_outputs(c_output, py_output)
+    
+    if verbose:
+        for i in range(py_output.shape[1]):
+            plt.plot(py_output[:, i], label="c")
+            plt.plot(py_output[:, i], label="py")
+            plt.legend()
+            plt.show()
     
 
 def tree_model_read(model_path):

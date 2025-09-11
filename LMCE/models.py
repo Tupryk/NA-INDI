@@ -39,6 +39,9 @@ class MLP(nn.Module):
         if not os.path.exists("./models"):
             os.makedirs("./models")
         torch.save(self.state_dict(), f"./models/{name}.pth")
+    
+    def load(self, name: str="mlp"):
+        self.load_state_dict(torch.load(f"./models/{name}.pth"))
 
 
 class DTE():

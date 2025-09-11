@@ -30,16 +30,19 @@ def feature_label_from_data(data: dict, residual_func, payload: bool=False):
     features = np.append(features, gyro, axis=1)
     features = np.append(features, motors, axis=1)
 
-    # if payload:
-    #     payload_acc = data["p_acc"]
-    #     payload_vel = data["p_vel"]
-    #     payload_pos = data["p_pos"]
-    #     features = np.append(features, payload_acc, axis=1)
-    #     features = np.append(features, payload_vel, axis=1)
-    #     features = np.append(features, payload_pos, axis=1)
+    if payload:
+        # payload_acc = data["p_acc"]
+        payload_vel = data["p_vel"]
+        payload_pos = data["p_pos"]
+        # features = np.append(features, payload_acc, axis=1)
+        features = np.append(features, payload_vel, axis=1)
+        features = np.append(features, payload_pos, axis=1)
 
     f_a, tau_a = residual_func(data)
-    labels = np.append(f_a, tau_a, axis=1)
+    if payload:
+        labels = tau_a
+    else:
+        labels = np.append(f_a, tau_a, axis=1)
 
     return features, labels
 
@@ -82,9 +85,12 @@ def prepare_data(file_paths: list,
                 for k in data.keys():
                     data[k] = data[k][:cutoffs[idx]]
 
+        # try:
         features, labels = feature_label_from_data(data, residual_func, payload=payload)
         X.extend(features)
         y.extend(labels)
+        # except:
+        #     print(f"Error while calculating residuals for {file_path}!")
 
     X = np.array(X)
     y = np.array(y)

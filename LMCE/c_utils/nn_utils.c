@@ -2,34 +2,27 @@
 
 
 static float ReLU(float num) {
-	if (num > 0) {
-		return num;
-	} else {
-		return 0;
-	}
+	return (num > 0) ? num : 0.f;
 }
 
 static float LeakyReLU(float num) {
-	if (num > 0) {
-		return num;
-	} else {
-		return num * 0.01f;
-	}
+	return (num > 0) ? num : num * 0.01f;
 }
 
 void layer(int rows, int cols, float in[rows], float layer_weight[rows][cols], float layer_bias[cols],
-			float output[cols], int use_activation) {
+		   float pre_output[cols], float output[cols], int use_activation) {
 	for(int ii = 0; ii < cols; ii++) {
-		output[ii] = 0;
+		pre_output[ii] = 0;
 		for (int jj = 0; jj < rows; jj++) {
-			output[ii] += in[jj] * layer_weight[jj][ii];
+			pre_output[ii] += in[jj] * layer_weight[jj][ii];
 		}
-		output[ii] += layer_bias[ii];
+		pre_output[ii] += layer_bias[ii];
 		if (use_activation == 1) {
-			output[ii] = ReLU(output[ii]);
+			output[ii] = ReLU(pre_output[ii]);
 		} else if (use_activation == 2) {
-			output[ii] = LeakyReLU(output[ii]);
+			output[ii] = LeakyReLU(pre_output[ii]);
+		} else {
+			output[ii] = pre_output[ii];
 		}
-		
 	}
 }

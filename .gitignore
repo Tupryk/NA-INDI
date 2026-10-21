@@ -11,3 +11,6 @@ data_old/
 *.log
 *.synctex.gz
 outputs/
+*lock
+training_data/
+evaluation_data/

@@ -1,5 +1,7 @@
-import cvxpy as cp
+import logging
 import numpy as np
+import cvxpy as cp
+from omegaconf import DictConfig
 
 
 def min_max(to_scale: np.ndarray,
@@ -56,7 +58,7 @@ class SplineFitter:
                 dboundary_value_next  = sum(d * coeffs[i + 1][d] * x**(d - 1) for d in range(1, degree + 1))
                 ddboundary_value_next = sum(d * (d - 1) * coeffs[i + 1][d] * x**(d - 2) for d in range(2, degree + 1))
                 # dddboundary_value_next = sum(d * (d - 2) * (d - 1) * coeffs[i + 1][d] * x**(d - 3) for d in range(3, degree + 1))
-            # add constraints
+                # add constraints
                 constraints.append(boundary_value == boundary_value_next)
                 constraints.append(dboundary_value == dboundary_value_next)
                 constraints.append(ddboundary_value == ddboundary_value_next)
@@ -113,3 +115,19 @@ class SplineFitter:
             y_poly = sum([d * (d-1) * self.coeffs[i][d].value*t_normalized**(d-2)/(self.T_segment**2) for d in range(2, self.degree+1)])
             result.append(y_poly)
         return np.array(result)
+
+
+def get_logger(cfg: DictConfig) -> logging.Logger:
+    logger = logging.getLogger(cfg.get("experiment_name", "default_experiment"))
+    logger.setLevel(logging.INFO)
+
+    if not logger.handlers:
+        # Console handler
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+    return logger
+

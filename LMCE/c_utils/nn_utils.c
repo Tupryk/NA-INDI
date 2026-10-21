@@ -26,3 +26,11 @@ void layer(int rows, int cols, float in[rows], float layer_weight[rows][cols], f
 		}
 	}
 }
+
+void sum_vectors(int vec_len, float vec_a[vec_len], float vec_b[vec_len], float vec_out[vec_len])
+{
+	for (int i = 0; i < vec_len; i++)
+	{
+		vec_out[i] = vec_a[i] + vec_b[i];
+	}
+}

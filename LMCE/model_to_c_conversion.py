@@ -27,6 +27,8 @@ def compare_outputs(c_output, py_output, err_thresh=1e-4):
         for j in range(output_size):
             if np.abs(c_output[i][j]-py_output[i][j]) >= err_thresh:
                 same = False
+                print(c_output[i][j])
+                print(py_output[i][j])
                 break
         if not same:
             break
@@ -39,6 +41,7 @@ def compare_outputs(c_output, py_output, err_thresh=1e-4):
             print("--")
             print(c_output[i])
             print(py_output[i])
+    return same
 
 
 def exportNet(pth_path: str,
@@ -46,6 +49,7 @@ def exportNet(pth_path: str,
               X_maxs: np.ndarray=np.array([]),
               y_mins: np.ndarray=np.array([]),
               y_maxs: np.ndarray=np.array([]),
+              resnet_arch: bool=False,
               info: str=""):
     
     gen_file = open(f'{PATH}nn.h', 'w')
@@ -83,6 +87,7 @@ def exportNet(pth_path: str,
             result += "[" + str(s) + "]"
         result += ";\n"
         if len(a.shape) == 1: # Weights (Can't be sure if there is a bias but there are always weights...)
+            result += f"    float {name.replace('bias', 'pre_activation')}[{a.shape[0]}];\n"
             result += f"    float {name.replace('bias', 'activation')}[{a.shape[0]}];\n"
     if len(X_mins):
         result += f"    float scaled_input[{INPUT_SIZE}];\n"
@@ -102,6 +107,7 @@ def exportNet(pth_path: str,
         a = data.numpy().T
         result += "    ." + name + " = " + arr2cstr(a) + ",\n"
         if len(a.shape) == 1:
+            result += "    ." + name.replace('bias', 'pre_activation') + " = " + arr2cstr(np.zeros(a.shape[0])) + ",\n"
             result += "    ." + name.replace('bias', 'activation') + " = " + arr2cstr(np.zeros(a.shape[0])) + ",\n"
     
     if len(X_mins):
@@ -136,17 +142,23 @@ def exportNet(pth_path: str,
         else:
             input = f"{exportname}.{name.replace('bias', 'activation')}"
         name = key.replace(".", "_")
+        pre_output = name.replace('bias', 'pre_activation')
         output = name.replace('bias', 'activation')
         a = data.numpy().T
         if switcher == 1:
             result += f"    layer({a.shape[0]}, {a.shape[1]}, {input}, {exportname}.{name}, "
+            input_to_prev_layer = input
+            prev_dim = a.shape[1]
         elif switcher == 2:
             if len(list(state_dict.items())) != counter:
                 activation_func = 2
             else:
                 activation_func = 0
-            result += f"{exportname}.{name}, {exportname}.{output}, {activation_func});\n"
+            result += f"{exportname}.{name}, {exportname}.{pre_output}, {exportname}.{output}, {activation_func});\n"
             switcher = 0
+        
+            if resnet_arch and counter != 2 and counter != len(state_dict.items()):
+                result += f"    sum_vectors({prev_dim}, {input_to_prev_layer}, {exportname}.{output}, {exportname}.{output});\n"
     
     # Rescale outputs
     if len(y_mins):
@@ -169,7 +181,7 @@ def nn_c_model_test(original_model,
                     y_maxs: np.ndarray=np.array([]),
                     in_dim: int=12,
                     test_data: np.ndarray=np.array([]),
-                    verbose: int=0):
+                    verbose: int=0) -> bool:
     
     # Check if the model outputs match
     print("Comparing with original...")
@@ -195,15 +207,16 @@ def nn_c_model_test(original_model,
     if len(y_mins):
         py_output = (py_output + 1) * .5 * (y_maxs - y_mins) + y_mins
 
-    compare_outputs(c_output, py_output)
+    passed = compare_outputs(c_output, py_output)
     
     if verbose:
         for i in range(py_output.shape[1]):
-            plt.plot(py_output[:, i], label="c")
+            plt.plot(c_output[:, i], label="c")
             plt.plot(py_output[:, i], label="py")
             plt.legend()
             plt.show()
     
+    return passed
 
 def tree_model_read(model_path):
     with open(model_path, 'rb') as f:

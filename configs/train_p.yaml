@@ -1,0 +1,16 @@
+batch_size: 2048
+lr: 0.0003
+epochs: 256
+net_arch:
+- 16
+- 16
+loss_type: mse
+scheduler_gamma: 0.92
+scheduler_step_size: -1
+model_type: resnet
+# train_data_path: train_data_payload_extra_residuals_qidot
+# test_data_path: test_data_payload_extra_residuals_qidot
+train_data_path: train_data_payload_smooth
+test_data_path: test_data_payload_not_smooth
+output_dir: ${hydra:runtime.output_dir}
+use_payload: True

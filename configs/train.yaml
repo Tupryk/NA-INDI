@@ -1,0 +1,16 @@
+batch_size: 256
+lr: 0.0003
+epochs: 64
+net_arch:
+- 24
+- 24
+loss_type: l1
+scheduler_gamma: 0.92
+scheduler_step_size: 10
+model_type: resnet
+# train_data_path: train_data_single_full
+# test_data_path: test_data_single_full
+train_data_path: train_data_single_smooth
+test_data_path: test_data_single_smooth
+output_dir: ${hydra:runtime.output_dir}
+use_payload: False

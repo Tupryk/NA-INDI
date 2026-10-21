@@ -11,16 +11,25 @@ def train(model: nn.Module,
           lr: float = 1e-3,
           scheduler_step_size: int=5,
           scheduler_gamma: float=.01,
-          device: str = "cpu") -> nn.Module:
+          loss_type: str="mse",
+          device: str = "cpu") -> tuple[nn.Module, list, list]:
 
     model.to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
-    loss_fn = nn.L1Loss()
-    # loss_fn = nn.MSELoss()
+    if scheduler_step_size != -1:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step_size, gamma=scheduler_gamma)
+    
+    if loss_type == "mse":
+        loss_fn = nn.MSELoss()
+    elif loss_type == "l1":
+        loss_fn = nn.L1Loss()
+    else:
+        raise Exception(f"loss_fn {loss_type} does not exist!")
 
+    train_losses = []
+    val_losses = []
     pbar = trange(epochs, unit="epoch")
-    for t in pbar:
+    for _ in pbar:
         model.train()
 
         # Train step
@@ -48,9 +57,15 @@ def train(model: nn.Module,
                 val_loss += loss.item()
         val_loss /= len(val_loader)
 
-        scheduler.step()
+        if scheduler_step_size != -1:
+            scheduler.step()
 
-        pbar.set_postfix(train_loss=train_loss, val_loss=val_loss, LR=scheduler.get_last_lr()[0])
+        if scheduler_step_size != -1:
+            pbar.set_postfix(train_loss=train_loss, val_loss=val_loss, LR=scheduler.get_last_lr()[0])
+        else:
+            pbar.set_postfix(train_loss=train_loss, val_loss=val_loss)
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
 
     print("Done!")
-    return model
+    return model, train_losses, val_losses

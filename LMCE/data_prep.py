@@ -7,7 +7,10 @@ from sklearn.utils import shuffle
 from torch.utils.data import TensorDataset, DataLoader
 
 
-def feature_label_from_data(data: dict, residual_func, payload: bool=False):
+def feature_label_from_data(
+    data: dict, residual_func, use_history: bool=True,
+    payload: bool=False, kappas: np.ndarray=np.array([])):
+    
     features = []
     labels = []
 
@@ -23,26 +26,45 @@ def feature_label_from_data(data: dict, residual_func, payload: bool=False):
     accs = data["acc"]
     vels = data["vel"]
     gyro = data["ang_vel"]
-    motors = data["pwm"]
+    motors = data["pwm"].astype(np.float64)
+    if len(kappas):
+        rpm2pwmA = -0.12128823778162669
+        rpm2pwmB = 4.2310782971594264e-05
+        pwm_normalized = motors / 65535.0
+        rpm = (pwm_normalized - rpm2pwmA) / rpm2pwmB
+        motors = rpm*rpm * kappas
     
-    features = np.append(r, accs, axis=1)
-    features = np.append(features, vels, axis=1)
-    features = np.append(features, gyro, axis=1)
-    features = np.append(features, motors, axis=1)
+    features = np.append(r[1:], accs[1:], axis=1)
+    features = np.append(features, vels[1:], axis=1)
+    features = np.append(features, gyro[1:], axis=1)
+    features = np.append(features, motors[1:], axis=1)
+    
+    if use_history:
+        features = np.append(features, r[:-1], axis=1)
+        features = np.append(features, accs[:-1], axis=1)
+        features = np.append(features, vels[:-1], axis=1)
+        features = np.append(features, gyro[:-1], axis=1)
+        features = np.append(features, motors[:-1], axis=1)
 
     if payload:
-        # payload_acc = data["p_acc"]
+        payload_acc = data["p_acc"]
         payload_vel = data["p_vel"]
-        payload_pos = data["p_pos"]
-        # features = np.append(features, payload_acc, axis=1)
-        features = np.append(features, payload_vel, axis=1)
-        features = np.append(features, payload_pos, axis=1)
+        payload_dir = data["p_dir"]
+        # payload_pos = data["p_pos"]
+        
+        features = np.append(features, payload_acc[1:], axis=1)
+        features = np.append(features, payload_vel[1:], axis=1)
+        # features = np.append(features, payload_pos, axis=1)
+        features = np.append(features, payload_dir[1:], axis=1)
+        
+        l = np.linalg.norm(data["p_pos"] - data["pos"], axis=1)
+        qidot = (data["p_vel"] - data["vel"])
+        qidot /= l.reshape(-1, 1)
+        
+        features = np.append(features, qidot[1:], axis=1)
 
     f_a, tau_a = residual_func(data)
-    if payload:
-        labels = tau_a
-    else:
-        labels = np.append(f_a, tau_a, axis=1)
+    labels = np.append(f_a, tau_a, axis=1)[1:]
 
     return features, labels
 
@@ -54,13 +76,14 @@ def prepare_data(file_paths: list,
                  overwrite: bool=True,
                  verbose: int=0,
                  cutoffs: dict={},
+                 use_history: bool=False,
+                 kappas: np.ndarray=np.array([]),
                  payload: bool=False):
     
-    if save_as and os.path.exists(f"./data/{save_as}.npz") and not overwrite:
+    if save_as and os.path.exists(f"./data/{save_as}_X.npz") and not overwrite:
         print("Data already exists, loading from files...")
-        loaded_arrays = np.load(f"./data/{save_as}.npz")
-        X = loaded_arrays['X']
-        y = loaded_arrays['y']
+        X = np.load(f"./data/{save_as}_X.npz")["arr_0"]
+        y = np.load(f"./data/{save_as}_y.npz")["arr_0"]
         return X, y
     
     X = []
@@ -85,12 +108,12 @@ def prepare_data(file_paths: list,
                 for k in data.keys():
                     data[k] = data[k][:cutoffs[idx]]
 
-        # try:
-        features, labels = feature_label_from_data(data, residual_func, payload=payload)
-        X.extend(features)
-        y.extend(labels)
-        # except:
-        #     print(f"Error while calculating residuals for {file_path}!")
+        try:
+            features, labels = feature_label_from_data(data, residual_func, use_history=use_history, kappas=kappas, payload=payload)
+            X.extend(features)
+            y.extend(labels)
+        except Exception as e:
+            print(f"Error while calculating residuals for {file_path}: {e}")
 
     X = np.array(X)
     y = np.array(y)
@@ -100,16 +123,17 @@ def prepare_data(file_paths: list,
     if save_as:
         if not os.path.exists("./data"):
             os.makedirs("./data")
-        np.savez(f'./data/{save_as}.npz', X=X, y=y)
+        np.savez(f'./data/{save_as}_X.npz', X)
+        np.savez(f'./data/{save_as}_y.npz', y)
 
     return X, y
 
-def create_dataloader(X: np.ndarray, y: np.ndarray):
+def create_dataloader(X: np.ndarray, y: np.ndarray, batch_size: int=256):
 
     X = torch.from_numpy(X).type(torch.float32)
     y = torch.from_numpy(y).type(torch.float32)
 
     dataset = TensorDataset(X, y)
-    dataloader = DataLoader(dataset, batch_size=64)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     return dataloader
